@@ -2,14 +2,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { GameStatus, GameState } from './types';
 import { 
-  CANVAS_WIDTH, 
-  CANVAS_HEIGHT, 
   MAX_HEALTH, 
   GOAL_PROGRESS, 
-  MOTIVATIONAL_QUOTES,
-  SUCCESS_MESSAGES 
+  MOTIVATIONAL_QUOTE 
 } from './constants';
-import GameCanvas from './components/GameCanvas';
+import GameScene from './components/GameScene';
 
 const App: React.FC = () => {
   const [gameState, setGameState] = useState<GameState>({
@@ -18,30 +15,25 @@ const App: React.FC = () => {
     progress: 0,
     speed: 1,
     status: GameStatus.START,
-    lastQuote: MOTIVATIONAL_QUOTES[0]
+    lastQuote: MOTIVATIONAL_QUOTE
   });
 
   const [highScore, setHighScore] = useState(0);
 
   useEffect(() => {
-    const saved = localStorage.getItem('race_of_life_highscore');
+    const saved = localStorage.getItem('race_of_life_highscore_3d');
     if (saved) setHighScore(parseInt(saved));
   }, []);
 
-  const handleGameOver = useCallback((reason: 'health' | 'success') => {
+  const handleGameOver = useCallback((reason: 'hit' | 'success') => {
     setGameState(prev => {
       if (prev.status !== GameStatus.PLAYING) return prev;
-
       const newStatus = reason === 'success' ? GameStatus.SUCCESS : GameStatus.GAMEOVER;
-      const quotes = reason === 'success' ? SUCCESS_MESSAGES : MOTIVATIONAL_QUOTES;
-      const randomQuote = quotes[Math.floor(Math.random() * quotes.length)];
-      
       if (prev.score > highScore) {
         setHighScore(prev.score);
-        localStorage.setItem('race_of_life_highscore', prev.score.toString());
+        localStorage.setItem('race_of_life_highscore_3d', prev.score.toString());
       }
-
-      return { ...prev, status: newStatus, lastQuote: randomQuote };
+      return { ...prev, status: newStatus };
     });
   }, [highScore]);
 
@@ -49,19 +41,19 @@ const App: React.FC = () => {
     setGameState(prev => {
       if (prev.status !== GameStatus.PLAYING) return prev;
 
-      const nextHealth = Math.min(MAX_HEALTH, Math.max(0, (prev.health + (stats.health || 0))));
+      if (stats.health && stats.health < 0) {
+        setTimeout(() => handleGameOver('hit'), 100);
+        return { ...prev, health: 0 };
+      }
+
       const nextProgress = prev.progress + (stats.progress || 0);
-      
-      if (nextHealth <= 0) {
-        setTimeout(() => handleGameOver('health'), 0);
-      } else if (nextProgress >= GOAL_PROGRESS) {
-        setTimeout(() => handleGameOver('success'), 0);
+      if (nextProgress >= GOAL_PROGRESS) {
+        setTimeout(() => handleGameOver('success'), 100);
       }
 
       return {
         ...prev,
         score: prev.score + (stats.score || 0),
-        health: nextHealth,
         progress: nextProgress,
       };
     });
@@ -74,111 +66,102 @@ const App: React.FC = () => {
       progress: 0,
       speed: 1,
       status: GameStatus.PLAYING,
-      lastQuote: MOTIVATIONAL_QUOTES[0]
+      lastQuote: MOTIVATIONAL_QUOTE
     });
   };
 
   return (
-    <div className="relative w-full h-screen flex items-center justify-center bg-slate-950 overflow-hidden select-none">
-      {/* HUD Overlay */}
+    <div className="relative w-full h-screen bg-black text-white font-['Noto_Nastaliq_Urdu'] select-none">
+      
+      {/* 3D Scene Layer */}
+      <GameScene status={gameState.status} onUpdate={updateGameStats} />
+
+      {/* HUD UI Layer */}
       {gameState.status === GameStatus.PLAYING && (
-        <div className="fixed top-6 left-1/2 -translate-x-1/2 w-full max-w-sm px-6 z-10 animate-in fade-in slide-in-from-top duration-700">
-          <div className="flex justify-between text-white text-xs mb-1 font-bold">
-            <span className="bg-blue-600 px-2 py-0.5 rounded">شروعات</span>
-            <span className="bg-emerald-600 px-2 py-0.5 rounded">منزل</span>
+        <div className="absolute top-0 left-0 w-full p-8 flex justify-between items-start pointer-events-none">
+          <div className="bg-white/10 backdrop-blur-xl px-6 py-4 rounded-3xl border border-white/20 shadow-2xl">
+            <p className="text-[10px] opacity-60 uppercase tracking-widest">آپ کا سکور</p>
+            <p className="text-4xl font-black">{gameState.score}</p>
           </div>
-          <div className="w-full bg-slate-800 rounded-full h-3 border border-slate-700 shadow-xl overflow-hidden">
-            <div 
-              className="bg-gradient-to-r from-blue-500 via-indigo-500 to-emerald-500 h-full transition-all duration-300 shadow-[0_0_10px_#10b981]"
-              style={{ width: `${Math.min(100, (gameState.progress / GOAL_PROGRESS) * 100)}%` }}
-            />
-          </div>
-          <div className="flex justify-between mt-3 text-white">
-            <div className="bg-slate-900/90 backdrop-blur-md px-4 py-1.5 rounded-full border border-red-500/30 flex items-center gap-3 shadow-lg">
-              <span className="text-[10px] uppercase tracking-wider opacity-60">صحت</span>
-              <div className="w-16 h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                <div className="bg-red-500 h-full transition-all duration-300" style={{ width: `${gameState.health}%` }} />
-              </div>
-            </div>
-            <div className="bg-slate-900/90 backdrop-blur-md px-4 py-1.5 rounded-full border border-blue-500/30 shadow-lg">
-              <span className="text-xs font-bold">سکور: {gameState.score}</span>
-            </div>
+          <div className="w-64">
+             <p className="text-right text-xs opacity-60 mb-2">منزل کی جانب پیش قدمی</p>
+             <div className="h-3 w-full bg-white/10 rounded-full overflow-hidden border border-white/5">
+                <div 
+                  className="h-full bg-gradient-to-r from-blue-500 to-emerald-400 shadow-[0_0_20px_#10b981]" 
+                  style={{ width: `${(gameState.progress / GOAL_PROGRESS) * 100}%` }}
+                />
+             </div>
           </div>
         </div>
       )}
 
-      {/* Canvas Container */}
-      <div className="relative border-x-8 border-slate-800/50 shadow-[0_0_50px_rgba(0,0,0,0.5)]">
-        <GameCanvas 
-          status={gameState.status} 
-          onUpdate={updateGameStats} 
-        />
+      {/* Start Screen */}
+      {gameState.status === GameStatus.START && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center p-10 bg-gradient-to-b from-transparent via-black/40 to-black/90 backdrop-blur-sm">
+          <h1 className="text-8xl font-black mb-8 drop-shadow-[0_0_30px_rgba(59,130,246,0.8)] tracking-tighter">
+            زندگی کی دوڑ
+          </h1>
+          <p className="text-2xl text-emerald-400 mb-12 font-bold max-w-lg text-center leading-loose">
+            اچھی عادات (محنت، سچائی) اپنائیں اور برائیوں سے بچ کر منزل مقصود حاصل کریں۔
+          </p>
+          <button 
+            onClick={startGame}
+            className="px-16 py-6 bg-blue-600 hover:bg-blue-500 text-3xl font-black rounded-full shadow-[0_0_50px_rgba(37,99,235,0.5)] transition-all transform hover:scale-105"
+          >
+            آغاز کریں
+          </button>
+          <div className="mt-16 text-white/40 text-sm tracking-widest uppercase flex gap-8">
+            <span>Arrow Keys to Switch Lanes</span>
+            <span>|</span>
+            <span>Swipe on Mobile</span>
+          </div>
+        </div>
+      )}
 
-        {/* Start Screen */}
-        {gameState.status === GameStatus.START && (
-          <div className="absolute inset-0 bg-slate-950/90 flex flex-col items-center justify-center text-center p-10 backdrop-blur-md">
-            <div className="mb-6 animate-bounce">🏎️</div>
-            <h1 className="text-6xl font-black text-transparent bg-clip-text bg-gradient-to-br from-blue-400 to-emerald-400 mb-6">
-              زندگی کی دوڑ
-            </h1>
-            <p className="text-slate-400 text-lg mb-10 leading-relaxed max-w-xs font-light">
-              منفی رویوں سے بچیں اور مثبت اقدار سمیٹ کر کامیابی کی منزل حاصل کریں۔
-            </p>
-            <button 
-              onClick={startGame}
-              className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold py-5 px-14 rounded-2xl text-2xl transition-all transform hover:scale-105 active:scale-95 shadow-2xl"
-            >
-              کھیل شروع کریں
-            </button>
-            <div className="mt-14 text-slate-500 text-sm grid grid-cols-2 gap-6 w-full max-w-xs">
-              <div className="bg-slate-900/50 p-3 rounded-xl border border-red-500/10">
-                <p className="text-red-400 font-bold mb-1">بچیں:</p>
-                <p className="text-xs">جھوٹ، سستی، غصہ</p>
+      {/* Game Over Screen */}
+      {gameState.status === GameStatus.GAMEOVER && (
+        <div className="absolute inset-0 bg-red-950/95 flex flex-col items-center justify-center p-10 backdrop-blur-3xl animate-in zoom-in duration-300">
+          <div className="text-9xl mb-10 animate-bounce">🚨</div>
+          <h2 className="text-6xl font-black mb-8">رکاوٹ!</h2>
+          <div className="max-w-xl w-full bg-white/5 p-10 rounded-[40px] border border-white/10 mb-12 shadow-2xl">
+            <p className="text-4xl font-bold text-yellow-300 leading-normal mb-6">"{MOTIVATIONAL_QUOTE}"</p>
+            <div className="flex justify-between items-center border-t border-white/10 pt-8">
+              <div>
+                 <p className="text-xs opacity-50 uppercase mb-1">سکور</p>
+                 <p className="text-4xl font-black">{gameState.score}</p>
               </div>
-              <div className="bg-slate-900/50 p-3 rounded-xl border border-emerald-500/10">
-                <p className="text-emerald-400 font-bold mb-1">حاصل کریں:</p>
-                <p className="text-xs">محنت، سچائی، علم</p>
+              <div className="text-right">
+                 <p className="text-xs opacity-50 uppercase mb-1">بہترین سکور</p>
+                 <p className="text-4xl font-black text-emerald-400">{highScore}</p>
               </div>
             </div>
           </div>
-        )}
+          <button 
+            onClick={startGame}
+            className="px-16 py-6 bg-white text-red-950 text-3xl font-black rounded-full shadow-[0_0_50px_rgba(255,255,255,0.2)] transition-all hover:bg-zinc-200 transform hover:scale-105"
+          >
+            دوبارہ کوشش کریں
+          </button>
+        </div>
+      )}
 
-        {/* Game Over / Success Overlays */}
-        {(gameState.status === GameStatus.GAMEOVER || gameState.status === GameStatus.SUCCESS) && (
-          <div className={`absolute inset-0 flex flex-col items-center justify-center text-center p-10 backdrop-blur-xl animate-in zoom-in duration-500 ${gameState.status === GameStatus.GAMEOVER ? 'bg-red-950/95' : 'bg-emerald-950/95'}`}>
-            <div className="text-7xl mb-6">{gameState.status === GameStatus.SUCCESS ? '🏆' : '💔'}</div>
-            <h2 className="text-5xl font-black text-white mb-6 uppercase tracking-tighter">
-              {gameState.status === GameStatus.GAMEOVER ? 'کھیل ختم!' : 'فاتح!'}
-            </h2>
-            <div className="bg-white/5 p-8 rounded-3xl mb-10 border border-white/10 w-full shadow-inner">
-              <p className="text-2xl text-yellow-300 font-bold mb-4 leading-normal">"{gameState.lastQuote}"</p>
-              <p className="text-slate-300 text-sm italic opacity-60">
-                {gameState.status === GameStatus.GAMEOVER ? 'ناامید نہ ہوں، ہر مشکل کے بعد آسانی ہے۔' : 'آپ کی محنت اور اخلاق نے آپ کو کامیاب بنایا۔'}
-              </p>
-            </div>
-            <div className="text-white mb-10 flex gap-10">
-              <div className="text-center">
-                <p className="text-xs uppercase opacity-40">سکور</p>
-                <p className="text-3xl font-mono font-bold">{gameState.score}</p>
-              </div>
-              <div className="text-center">
-                <p className="text-xs uppercase opacity-40">بہترین</p>
-                <p className="text-3xl font-mono font-bold">{highScore}</p>
-              </div>
-            </div>
-            <button 
-              onClick={startGame}
-              className="bg-white text-slate-900 font-black py-4 px-12 rounded-2xl text-xl hover:bg-blue-50 transition-all transform hover:scale-105 active:scale-95 shadow-2xl"
-            >
-              دوبارہ کھیلیں
-            </button>
+      {/* Success Screen */}
+      {gameState.status === GameStatus.SUCCESS && (
+        <div className="absolute inset-0 bg-emerald-950/95 flex flex-col items-center justify-center p-10 backdrop-blur-3xl animate-in zoom-in duration-500">
+          <div className="text-9xl mb-10">🥇</div>
+          <h2 className="text-7xl font-black mb-8 tracking-tighter">آپ فاتح ہیں!</h2>
+          <div className="max-w-xl w-full bg-white/5 p-10 rounded-[40px] border border-white/10 mb-12 shadow-2xl text-center">
+            <p className="text-3xl text-emerald-300 font-bold mb-4 leading-relaxed">آپ کی ثابت قدمی اور نیک عادات نے آپ کو کامیابی کی منزل تک پہنچا دیا۔</p>
+            <p className="text-white/60 text-lg">فائنل سکور: {gameState.score}</p>
           </div>
-        )}
-      </div>
-
-      <div className="fixed bottom-6 text-slate-600 text-[10px] tracking-[0.2em] uppercase font-bold w-full text-center">
-        استعمال کریں: ARROWS یا TOUCH
-      </div>
+          <button 
+            onClick={startGame}
+            className="px-16 py-6 bg-white text-emerald-950 text-3xl font-black rounded-full shadow-[0_0_50px_rgba(16,185,129,0.3)] transition-all hover:bg-zinc-200 transform hover:scale-105"
+          >
+            دوبارہ کھیلیں
+          </button>
+        </div>
+      )}
     </div>
   );
 };

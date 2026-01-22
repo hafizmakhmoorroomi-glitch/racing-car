@@ -3,47 +3,39 @@
 <html lang="ur" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>The Race of Life</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>زندگی کی دوڑ 3D - The Race of Life</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@^19.2.3",
+        "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+        "react/": "https://esm.sh/react@^19.2.3/",
+        "three": "https://esm.sh/three@0.160.0"
+      }
+    }
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Nastaliq+Urdu:wght@400;700&display=swap" rel="stylesheet">
     <style>
         body {
             margin: 0;
+            padding: 0;
             overflow: hidden;
-            background-color: #0f172a;
+            background-color: #000;
             font-family: 'Noto Nastaliq Urdu', serif;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
+            touch-action: none;
         }
         #root {
-            width: 100%;
-            height: 100%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            width: 100vw;
+            height: 100vh;
         }
         canvas {
             display: block;
-            touch-action: none;
-            max-width: 100%;
-            max-height: 100vh;
-            image-rendering: crisp-edges;
         }
     </style>
-<script type="importmap">
-{
-  "imports": {
-    "react": "https://esm.sh/react@^19.2.3",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "react/": "https://esm.sh/react@^19.2.3/"
-  }
-}
-</script>
 </head>
 <body>
     <div id="root"></div>

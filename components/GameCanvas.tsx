@@ -1,13 +1,14 @@
 
-import React, { useRef, useEffect, useCallback } from 'react';
+import React, { useRef, useEffect, useCallback, useState } from 'react';
 import { 
   CANVAS_WIDTH, 
   CANVAS_HEIGHT, 
   CAR_WIDTH, 
   CAR_HEIGHT, 
   ROAD_SPEED_BASE, 
-  OBSTACLES, 
-  POWERUPS 
+  BAD_ITEMS, 
+  GOOD_ITEMS,
+  ASSETS
 } from '../constants';
 import { GameStatus, Entity, GameState } from '../types';
 
@@ -19,24 +20,33 @@ interface GameCanvasProps {
 const GameCanvas: React.FC<GameCanvasProps> = ({ status, onUpdate }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const requestRef = useRef<number>(null);
+  const carImgRef = useRef<HTMLImageElement | null>(null);
+  const [assetsLoaded, setAssetsLoaded] = useState(false);
   
-  // High-performance state tracked via refs for the animation loop
   const carXRef = useRef(CANVAS_WIDTH / 2 - CAR_WIDTH / 2);
   const entitiesRef = useRef<Entity[]>([]);
   const keysPressed = useRef<{ [key: string]: boolean }>({});
   const roadOffset = useRef(0);
 
+  // Asset Loading
+  useEffect(() => {
+    const img = new Image();
+    img.src = ASSETS.CAR_IMAGE;
+    img.onload = () => {
+      carImgRef.current = img;
+      setAssetsLoaded(true);
+    };
+  }, []);
+
   // Input handling
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       keysPressed.current[e.key] = true;
-      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' '].includes(e.key)) {
-        e.preventDefault();
-      }
+      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) e.preventDefault();
     };
     const handleKeyUp = (e: KeyboardEvent) => keysPressed.current[e.key] = false;
     
-    const handleTouchMove = (e: TouchEvent) => {
+    const handleTouch = (e: TouchEvent) => {
       const touch = e.touches[0];
       if (canvasRef.current) {
         const rect = canvasRef.current.getBoundingClientRect();
@@ -44,97 +54,79 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ status, onUpdate }) => {
         const touchX = (touch.clientX - rect.left) * scaleX;
         carXRef.current = Math.min(Math.max(0, touchX - CAR_WIDTH / 2), CANVAS_WIDTH - CAR_WIDTH);
       }
-      e.preventDefault();
-    };
-
-    const handleMouseMove = (e: MouseEvent) => {
-      if (e.buttons > 0 && canvasRef.current) {
-        const rect = canvasRef.current.getBoundingClientRect();
-        const scaleX = CANVAS_WIDTH / rect.width;
-        const mouseX = (e.clientX - rect.left) * scaleX;
-        carXRef.current = Math.min(Math.max(0, mouseX - CAR_WIDTH / 2), CANVAS_WIDTH - CAR_WIDTH);
-      }
+      if (status === GameStatus.PLAYING) e.preventDefault();
     };
 
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
-    window.addEventListener('touchmove', handleTouchMove, { passive: false });
-    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('touchstart', handleTouch, { passive: false });
+    window.addEventListener('touchmove', handleTouch, { passive: false });
 
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
-      window.removeEventListener('touchmove', handleTouchMove);
-      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('touchstart', handleTouch);
+      window.removeEventListener('touchmove', handleTouch);
     };
-  }, []);
+  }, [status]);
 
   const spawnEntity = useCallback(() => {
-    const isPowerup = Math.random() > 0.6;
-    const template = isPowerup 
-      ? POWERUPS[Math.floor(Math.random() * POWERUPS.length)]
-      : OBSTACLES[Math.floor(Math.random() * OBSTACLES.length)];
-
-    if (!template) return;
+    const isGood = Math.random() > 0.4;
+    const template = isGood 
+      ? GOOD_ITEMS[Math.floor(Math.random() * GOOD_ITEMS.length)]
+      : BAD_ITEMS[Math.floor(Math.random() * BAD_ITEMS.length)];
 
     const newEntity: Entity = {
-      x: Math.random() * (CANVAS_WIDTH - 80),
+      x: 50 + Math.random() * (CANVAS_WIDTH - 150),
       y: -100,
-      width: 80,
+      width: 100,
       height: 40,
       label: template.label,
-      type: isPowerup ? 'powerup' : 'obstacle',
+      type: isGood ? 'powerup' : 'obstacle',
       color: template.color,
-      speed: 4 + Math.random() * 4
+      speed: 6 + Math.random() * 5
     };
 
     entitiesRef.current.push(newEntity);
   }, []);
 
-  const gameLoop = useCallback((time: number) => {
-    if (status !== GameStatus.PLAYING) return;
+  const gameLoop = useCallback(() => {
+    if (status !== GameStatus.PLAYING || !assetsLoaded) return;
 
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // --- 1. UPDATE LOGIC ---
-    const carSpeed = 9;
-    if (keysPressed.current['ArrowLeft'] || keysPressed.current['a']) {
-      carXRef.current = Math.max(0, carXRef.current - carSpeed);
-    }
-    if (keysPressed.current['ArrowRight'] || keysPressed.current['d']) {
-      carXRef.current = Math.min(CANVAS_WIDTH - CAR_WIDTH, carXRef.current + carSpeed);
-    }
+    // Movement
+    const speed = 10;
+    if (keysPressed.current['ArrowLeft']) carXRef.current = Math.max(0, carXRef.current - speed);
+    if (keysPressed.current['ArrowRight']) carXRef.current = Math.min(CANVAS_WIDTH - CAR_WIDTH, carXRef.current + speed);
 
     roadOffset.current = (roadOffset.current + ROAD_SPEED_BASE) % 100;
 
     const nextEntities: Entity[] = [];
-    let statsUpdate: Partial<GameState> = { progress: 3 };
+    let stats: Partial<GameState> = { progress: 5 };
+
+    const carRect = { x: carXRef.current + 10, y: CANVAS_HEIGHT - 160, w: CAR_WIDTH - 20, h: CAR_HEIGHT - 20 };
 
     for (const entity of entitiesRef.current) {
       entity.y += entity.speed;
 
-      // Simple Rect Collision
-      const carRect = { x: carXRef.current, y: CANVAS_HEIGHT - 120, w: CAR_WIDTH, h: CAR_HEIGHT };
       if (
-        carRect.x < entity.x + entity.width &&
-        carRect.x + carRect.w > entity.x &&
+        carRect.x < entity.x + entity.width - 20 &&
+        carRect.x + carRect.w > entity.x + 20 &&
         carRect.y < entity.y + entity.height &&
         carRect.y + carRect.h > entity.y
       ) {
         if (entity.type === 'powerup') {
-          const powerupDef = POWERUPS.find(p => p.label === entity.label);
-          statsUpdate.score = (statsUpdate.score || 0) + 100;
-          statsUpdate.health = (statsUpdate.health || 0) + (powerupDef?.impact || 5);
-          statsUpdate.progress = (statsUpdate.progress || 0) + 100;
+          stats.score = (stats.score || 0) + 10;
+          stats.progress = (stats.progress || 0) + 100;
         } else {
-          const obstacleDef = OBSTACLES.find(o => o.label === entity.label);
-          statsUpdate.score = (statsUpdate.score || 0) - 50;
-          statsUpdate.health = (statsUpdate.health || 0) + (obstacleDef?.impact || -10);
+          // Instant Game Over on Bad Item hit
+          stats.health = -100;
         }
-        continue; // Impacted: remove entity
+        continue;
       }
 
       if (entity.y < CANVAS_HEIGHT) {
@@ -143,69 +135,70 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ status, onUpdate }) => {
     }
     
     entitiesRef.current = nextEntities;
-    onUpdate(statsUpdate);
+    onUpdate(stats);
 
-    if (Math.random() < 0.02) {
-      spawnEntity();
-    }
+    if (Math.random() < 0.03) spawnEntity();
 
-    // --- 2. DRAWING ---
-    ctx.fillStyle = '#0f172a';
+    // Drawing
+    ctx.fillStyle = '#27272a'; // Road Dark Grey
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-    // Road dashed lines
-    ctx.strokeStyle = '#334155';
-    ctx.setLineDash([40, 40]);
+    // Lane Lines
+    ctx.strokeStyle = 'white';
+    ctx.setLineDash([60, 40]);
     ctx.lineWidth = 4;
-    ctx.lineDashOffset = -roadOffset.current * 2;
+    ctx.lineDashOffset = -roadOffset.current * 4;
     ctx.beginPath();
     ctx.moveTo(CANVAS_WIDTH / 2, 0);
     ctx.lineTo(CANVAS_WIDTH / 2, CANVAS_HEIGHT);
     ctx.stroke();
 
-    // Road borders
+    // Side Borders
     ctx.setLineDash([]);
-    ctx.strokeStyle = '#1e293b';
-    ctx.lineWidth = 10;
-    ctx.strokeRect(5, 0, CANVAS_WIDTH - 10, CANVAS_HEIGHT);
+    ctx.fillStyle = '#3f3f46';
+    ctx.fillRect(0, 0, 20, CANVAS_HEIGHT);
+    ctx.fillRect(CANVAS_WIDTH - 20, 0, 20, CANVAS_HEIGHT);
 
-    // Player Car
-    const carY = CANVAS_HEIGHT - 120;
-    ctx.shadowBlur = 20;
-    ctx.shadowColor = '#60a5fa';
-    ctx.fillStyle = '#3b82f6';
-    ctx.fillRect(carXRef.current, carY, CAR_WIDTH, CAR_HEIGHT);
-    
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = '#1e1b4b';
-    ctx.fillRect(carXRef.current + 5, carY + 10, CAR_WIDTH - 10, 25); // Windshield
-    ctx.fillStyle = '#fbbf24';
-    ctx.fillRect(carXRef.current + 5, carY + 2, 12, 6); // Left Headlight
-    ctx.fillRect(carXRef.current + CAR_WIDTH - 17, carY + 2, 12, 6); // Right Headlight
-
-    // Entities (Obstacles and Powerups)
-    entitiesRef.current.forEach(entity => {
-      ctx.shadowBlur = 10;
-      ctx.shadowColor = entity.color;
-      ctx.fillStyle = entity.color;
-      ctx.beginPath();
-      ctx.roundRect ? ctx.roundRect(entity.x, entity.y, entity.width, entity.height, 8) : ctx.rect(entity.x, entity.y, entity.width, entity.height);
-      ctx.fill();
-
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = 'white';
-      ctx.font = 'bold 18px "Noto Nastaliq Urdu", sans-serif';
+    // Items
+    entitiesRef.current.forEach(item => {
+      ctx.shadowBlur = 15;
+      ctx.shadowColor = item.color;
+      ctx.fillStyle = item.color;
+      ctx.font = 'bold 24px "Noto Nastaliq Urdu"';
       ctx.textAlign = 'center';
-      ctx.fillText(entity.label, entity.x + entity.width / 2, entity.y + entity.height / 2 + 10);
+      ctx.fillText(item.label, item.x + item.width / 2, item.y + item.height / 2);
+      ctx.shadowBlur = 0;
     });
 
+    // Player Car
+    if (carImgRef.current) {
+      ctx.save();
+      // Apply subtle tilt on movement
+      let tilt = 0;
+      if (keysPressed.current['ArrowLeft']) tilt = -0.05;
+      if (keysPressed.current['ArrowRight']) tilt = 0.05;
+      
+      ctx.translate(carXRef.current + CAR_WIDTH/2, CANVAS_HEIGHT - 160 + CAR_HEIGHT/2);
+      ctx.rotate(tilt);
+      
+      // Car Shadow
+      ctx.shadowBlur = 20;
+      ctx.shadowColor = 'black';
+      
+      ctx.drawImage(
+        carImgRef.current, 
+        -CAR_WIDTH/2, -CAR_HEIGHT/2, 
+        CAR_WIDTH, CAR_HEIGHT
+      );
+      ctx.restore();
+    }
+
     requestRef.current = requestAnimationFrame(gameLoop);
-  }, [status, onUpdate, spawnEntity]);
+  }, [status, assetsLoaded, onUpdate, spawnEntity]);
 
   useEffect(() => {
-    if (status === GameStatus.PLAYING) {
+    if (status === GameStatus.PLAYING && assetsLoaded) {
       entitiesRef.current = [];
-      carXRef.current = CANVAS_WIDTH / 2 - CAR_WIDTH / 2;
       requestRef.current = requestAnimationFrame(gameLoop);
     } else {
       if (requestRef.current) cancelAnimationFrame(requestRef.current);
@@ -213,15 +206,14 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ status, onUpdate }) => {
     return () => {
       if (requestRef.current) cancelAnimationFrame(requestRef.current);
     };
-  }, [status, gameLoop]);
+  }, [status, assetsLoaded, gameLoop]);
 
   return (
     <canvas
-      id="gameCanvas"
       ref={canvasRef}
       width={CANVAS_WIDTH}
       height={CANVAS_HEIGHT}
-      className="bg-slate-900 rounded-lg shadow-2xl"
+      className="w-full h-full"
     />
   );
 };
