@@ -1,5 +1,5 @@
 
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useCallback } from 'react';
 import { 
   CANVAS_WIDTH, 
   CANVAS_HEIGHT, 
@@ -18,60 +18,64 @@ interface GameCanvasProps {
 
 const GameCanvas: React.FC<GameCanvasProps> = ({ status, onUpdate }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const requestRef = useRef<number>();
-  const [carX, setCarX] = useState(CANVAS_WIDTH / 2 - CAR_WIDTH / 2);
-  const [entities, setEntities] = useState<Entity[]>([]);
-  const entitiesRef = useRef<Entity[]>([]);
+  const requestRef = useRef<number>(null);
+  
+  // High-performance state tracked via refs for the animation loop
   const carXRef = useRef(CANVAS_WIDTH / 2 - CAR_WIDTH / 2);
+  const entitiesRef = useRef<Entity[]>([]);
   const keysPressed = useRef<{ [key: string]: boolean }>({});
   const roadOffset = useRef(0);
 
   // Input handling
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => keysPressed.current[e.key] = true;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      keysPressed.current[e.key] = true;
+      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' '].includes(e.key)) {
+        e.preventDefault();
+      }
+    };
     const handleKeyUp = (e: KeyboardEvent) => keysPressed.current[e.key] = false;
     
-    const handleTouch = (e: TouchEvent) => {
+    const handleTouchMove = (e: TouchEvent) => {
       const touch = e.touches[0];
       if (canvasRef.current) {
         const rect = canvasRef.current.getBoundingClientRect();
-        const touchX = touch.clientX - rect.left;
+        const scaleX = CANVAS_WIDTH / rect.width;
+        const touchX = (touch.clientX - rect.left) * scaleX;
         carXRef.current = Math.min(Math.max(0, touchX - CAR_WIDTH / 2), CANVAS_WIDTH - CAR_WIDTH);
-        setCarX(carXRef.current);
       }
+      e.preventDefault();
     };
 
     const handleMouseMove = (e: MouseEvent) => {
       if (e.buttons > 0 && canvasRef.current) {
         const rect = canvasRef.current.getBoundingClientRect();
-        const mouseX = e.clientX - rect.left;
+        const scaleX = CANVAS_WIDTH / rect.width;
+        const mouseX = (e.clientX - rect.left) * scaleX;
         carXRef.current = Math.min(Math.max(0, mouseX - CAR_WIDTH / 2), CANVAS_WIDTH - CAR_WIDTH);
-        setCarX(carXRef.current);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
-    window.addEventListener('touchstart', handleTouch);
-    window.addEventListener('touchmove', handleTouch);
+    window.addEventListener('touchmove', handleTouchMove, { passive: false });
     window.addEventListener('mousemove', handleMouseMove);
 
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
-      window.removeEventListener('touchstart', handleTouch);
-      window.removeEventListener('touchmove', handleTouch);
+      window.removeEventListener('touchmove', handleTouchMove);
       window.removeEventListener('mousemove', handleMouseMove);
     };
   }, []);
 
   const spawnEntity = useCallback(() => {
-    if (status !== GameStatus.PLAYING) return;
-    
     const isPowerup = Math.random() > 0.6;
     const template = isPowerup 
       ? POWERUPS[Math.floor(Math.random() * POWERUPS.length)]
       : OBSTACLES[Math.floor(Math.random() * OBSTACLES.length)];
+
+    if (!template) return;
 
     const newEntity: Entity = {
       x: Math.random() * (CANVAS_WIDTH - 80),
@@ -81,55 +85,56 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ status, onUpdate }) => {
       label: template.label,
       type: isPowerup ? 'powerup' : 'obstacle',
       color: template.color,
-      speed: 3 + Math.random() * 4
+      speed: 4 + Math.random() * 4
     };
 
     entitiesRef.current.push(newEntity);
-  }, [status]);
+  }, []);
 
-  const update = useCallback(() => {
+  const gameLoop = useCallback((time: number) => {
     if (status !== GameStatus.PLAYING) return;
 
-    // Move Car
-    const carSpeed = 8;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // --- 1. UPDATE LOGIC ---
+    const carSpeed = 9;
     if (keysPressed.current['ArrowLeft'] || keysPressed.current['a']) {
       carXRef.current = Math.max(0, carXRef.current - carSpeed);
     }
     if (keysPressed.current['ArrowRight'] || keysPressed.current['d']) {
       carXRef.current = Math.min(CANVAS_WIDTH - CAR_WIDTH, carXRef.current + carSpeed);
     }
-    setCarX(carXRef.current);
 
-    // Scroll Road
     roadOffset.current = (roadOffset.current + ROAD_SPEED_BASE) % 100;
 
-    // Update Entities
-    const currentEntities = [...entitiesRef.current];
     const nextEntities: Entity[] = [];
-    
-    for (const entity of currentEntities) {
+    let statsUpdate: Partial<GameState> = { progress: 3 };
+
+    for (const entity of entitiesRef.current) {
       entity.y += entity.speed;
 
-      // Collision Detection
+      // Simple Rect Collision
       const carRect = { x: carXRef.current, y: CANVAS_HEIGHT - 120, w: CAR_WIDTH, h: CAR_HEIGHT };
-      const entityRect = { x: entity.x, y: entity.y, w: entity.width, h: entity.height };
-
       if (
-        carRect.x < entityRect.x + entityRect.w &&
-        carRect.x + carRect.w > entityRect.x &&
-        carRect.y < entityRect.y + entityRect.h &&
-        carRect.y + carRect.h > entityRect.y
+        carRect.x < entity.x + entity.width &&
+        carRect.x + carRect.w > entity.x &&
+        carRect.y < entity.y + entity.height &&
+        carRect.y + carRect.h > entity.y
       ) {
-        // Impact
         if (entity.type === 'powerup') {
           const powerupDef = POWERUPS.find(p => p.label === entity.label);
-          onUpdate({ score: 100, health: powerupDef?.impact || 5, progress: 50 });
+          statsUpdate.score = (statsUpdate.score || 0) + 100;
+          statsUpdate.health = (statsUpdate.health || 0) + (powerupDef?.impact || 5);
+          statsUpdate.progress = (statsUpdate.progress || 0) + 100;
         } else {
           const obstacleDef = OBSTACLES.find(o => o.label === entity.label);
-          onUpdate({ score: -50, health: obstacleDef?.impact || -10, progress: 10 });
+          statsUpdate.score = (statsUpdate.score || 0) - 50;
+          statsUpdate.health = (statsUpdate.health || 0) + (obstacleDef?.impact || -10);
         }
-        // Entity consumed
-        continue;
+        continue; // Impacted: remove entity
       }
 
       if (entity.y < CANVAS_HEIGHT) {
@@ -138,117 +143,85 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ status, onUpdate }) => {
     }
     
     entitiesRef.current = nextEntities;
-    setEntities(nextEntities);
+    onUpdate(statsUpdate);
 
-    // Progress naturally
-    onUpdate({ progress: 2 });
-
-    // Spawn new entities
     if (Math.random() < 0.02) {
       spawnEntity();
     }
 
-    requestRef.current = requestAnimationFrame(update);
+    // --- 2. DRAWING ---
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    // Road dashed lines
+    ctx.strokeStyle = '#334155';
+    ctx.setLineDash([40, 40]);
+    ctx.lineWidth = 4;
+    ctx.lineDashOffset = -roadOffset.current * 2;
+    ctx.beginPath();
+    ctx.moveTo(CANVAS_WIDTH / 2, 0);
+    ctx.lineTo(CANVAS_WIDTH / 2, CANVAS_HEIGHT);
+    ctx.stroke();
+
+    // Road borders
+    ctx.setLineDash([]);
+    ctx.strokeStyle = '#1e293b';
+    ctx.lineWidth = 10;
+    ctx.strokeRect(5, 0, CANVAS_WIDTH - 10, CANVAS_HEIGHT);
+
+    // Player Car
+    const carY = CANVAS_HEIGHT - 120;
+    ctx.shadowBlur = 20;
+    ctx.shadowColor = '#60a5fa';
+    ctx.fillStyle = '#3b82f6';
+    ctx.fillRect(carXRef.current, carY, CAR_WIDTH, CAR_HEIGHT);
+    
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#1e1b4b';
+    ctx.fillRect(carXRef.current + 5, carY + 10, CAR_WIDTH - 10, 25); // Windshield
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillRect(carXRef.current + 5, carY + 2, 12, 6); // Left Headlight
+    ctx.fillRect(carXRef.current + CAR_WIDTH - 17, carY + 2, 12, 6); // Right Headlight
+
+    // Entities (Obstacles and Powerups)
+    entitiesRef.current.forEach(entity => {
+      ctx.shadowBlur = 10;
+      ctx.shadowColor = entity.color;
+      ctx.fillStyle = entity.color;
+      ctx.beginPath();
+      ctx.roundRect ? ctx.roundRect(entity.x, entity.y, entity.width, entity.height, 8) : ctx.rect(entity.x, entity.y, entity.width, entity.height);
+      ctx.fill();
+
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = 'white';
+      ctx.font = 'bold 18px "Noto Nastaliq Urdu", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(entity.label, entity.x + entity.width / 2, entity.y + entity.height / 2 + 10);
+    });
+
+    requestRef.current = requestAnimationFrame(gameLoop);
   }, [status, onUpdate, spawnEntity]);
 
   useEffect(() => {
     if (status === GameStatus.PLAYING) {
       entitiesRef.current = [];
-      setEntities([]);
-      requestRef.current = requestAnimationFrame(update);
+      carXRef.current = CANVAS_WIDTH / 2 - CAR_WIDTH / 2;
+      requestRef.current = requestAnimationFrame(gameLoop);
     } else {
       if (requestRef.current) cancelAnimationFrame(requestRef.current);
     }
     return () => {
       if (requestRef.current) cancelAnimationFrame(requestRef.current);
     };
-  }, [status, update]);
-
-  const draw = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    // Clear
-    ctx.fillStyle = '#1e293b';
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-    // Draw Road Lines
-    ctx.strokeStyle = '#64748b';
-    ctx.setLineDash([40, 40]);
-    ctx.lineWidth = 4;
-    ctx.lineDashOffset = -roadOffset.current * 2;
-    
-    ctx.beginPath();
-    ctx.moveTo(CANVAS_WIDTH / 2, 0);
-    ctx.lineTo(CANVAS_WIDTH / 2, CANVAS_HEIGHT);
-    ctx.stroke();
-
-    ctx.setLineDash([]);
-    ctx.strokeStyle = '#475569';
-    ctx.lineWidth = 10;
-    ctx.strokeRect(5, 0, CANVAS_WIDTH - 10, CANVAS_HEIGHT);
-
-    // Draw Car
-    const carY = CANVAS_HEIGHT - 120;
-    ctx.fillStyle = '#ef4444';
-    // Car body shadow
-    ctx.shadowBlur = 15;
-    ctx.shadowColor = 'rgba(0,0,0,0.5)';
-    
-    // Draw neon effect for player car
-    ctx.fillStyle = '#3b82f6';
-    ctx.fillRect(carX, carY, CAR_WIDTH, CAR_HEIGHT);
-    
-    // Car details
-    ctx.fillStyle = '#1e1b4b';
-    ctx.fillRect(carX + 5, carY + 15, CAR_WIDTH - 10, 20); // Windshield
-    ctx.fillStyle = '#facc15';
-    ctx.fillRect(carX + 5, carY + 5, 10, 5); // Headlight L
-    ctx.fillRect(carX + CAR_WIDTH - 15, carY + 5, 10, 5); // Headlight R
-    
-    ctx.shadowBlur = 0;
-
-    // Draw Entities
-    entitiesRef.current.forEach(entity => {
-      ctx.shadowBlur = 10;
-      ctx.shadowColor = entity.color;
-      
-      ctx.fillStyle = entity.color;
-      ctx.beginPath();
-      ctx.roundRect(entity.x, entity.y, entity.width, entity.height, 8);
-      ctx.fill();
-
-      // Label
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = 'white';
-      ctx.font = '20px "Noto Nastaliq Urdu"';
-      ctx.textAlign = 'center';
-      ctx.fillText(entity.label, entity.x + entity.width / 2, entity.y + entity.height / 2 + 8);
-    });
-
-  }, [carX]);
-
-  useEffect(() => {
-    const render = () => {
-      draw();
-      if (status === GameStatus.PLAYING) {
-        requestRef.current = requestAnimationFrame(render);
-      }
-    };
-    render();
-    return () => {
-      if (requestRef.current) cancelAnimationFrame(requestRef.current);
-    };
-  }, [draw, status]);
+  }, [status, gameLoop]);
 
   return (
     <canvas
+      id="gameCanvas"
       ref={canvasRef}
       width={CANVAS_WIDTH}
       height={CANVAS_HEIGHT}
-      className="bg-slate-900 rounded shadow-inner"
+      className="bg-slate-900 rounded-lg shadow-2xl"
     />
   );
 };
